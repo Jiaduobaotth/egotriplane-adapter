@@ -1,0 +1,65 @@
+# Stage 2: Train VLM + EgoTriPlane-Adapter for 3D-QA
+train:
+  seed: 42
+  num_epochs: 20
+  batch_size: 4
+  gradient_accumulation_steps: 8
+  learning_rate: 5e-5
+  weight_decay: 0.01
+  warmup_steps: 200
+  max_grad_norm: 1.0
+  num_workers: 4
+  mixed_precision: fp16
+
+model:
+  llm: Qwen/Qwen2.5-VL-3B-Instruct
+  freeze_vision: true
+  freeze_llm: true
+  use_lora: true
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.1
+  lora_target_modules:
+    - q_proj
+    - v_proj
+    - o_proj
+  hidden_dim: 512
+  triplane:
+    x_range: [-20.0, 80.0]
+    y_range: [-40.0, 40.0]
+    z_range: [-3.0, 8.0]
+    sx: 96
+    sy: 96
+    sz: 48
+    patch_size: 8
+  use_ray_embedding: true
+  aggregation: attention
+  num_triplane_tokens: 288
+  projector_hidden_dim: 1024
+
+loss:
+  ce_weight: 1.0
+  bev_weight: 0.5
+  vis_weight: 0.5
+  cfg_weight: 0.2
+
+data:
+  features_dir: outputs/features/nusc_train_clip_features/
+  qa_file: outputs/ego3dqa/nusc_train_ego3dqa.jsonl
+  camera_dropout: true
+  min_cameras: 3
+  max_cameras: 6
+  max_seq_length: 512
+
+checkpoint:
+  stage1_checkpoint: outputs/checkpoints/stage1/best.pt
+  save_dir: outputs/checkpoints/stage2/
+  save_every: 5
+  save_top_k: 3
+  metric: val_qa_acc
+  mode: max
+
+logging:
+  log_every: 10
+  wandb_project: egotriplane-adapter
+  wandb_run: stage2

@@ -1,0 +1,104 @@
+# Ego3D-QA generation configuration
+qa_generation:
+  num_dropout_versions: 3
+  max_qa_per_sample: 8
+  answer_distribution:
+    yes: 0.4
+    no: 0.2
+    unknown: 0.4
+  min_object_distance_diff: 2.0   # closest vs second-closest
+  min_projected_box_area: 50      # px
+
+triplane_grid:
+  x_range: [-20.0, 80.0]
+  y_range: [-40.0, 40.0]
+  z_range: [-3.0, 8.0]
+  sx: 96
+  sy: 96
+  sz: 48
+  patch_size: 8
+
+ego_path:
+  x_min: 0.0
+  x_max: 50.0
+  half_width: 1.8               # m, corridor half-width
+
+camera_dropout:
+  min_cameras: 3
+  max_cameras: 6
+  unseen_holdout:  # held out during training for unseen subset eval
+    - CAM_FRONT
+    - CAM_BACK
+    - CAM_FRONT_LEFT
+    - CAM_BACK_RIGHT
+
+camera_subsets:
+  6cam:
+    - CAM_FRONT
+    - CAM_FRONT_LEFT
+    - CAM_FRONT_RIGHT
+    - CAM_BACK
+    - CAM_BACK_LEFT
+    - CAM_BACK_RIGHT
+  front3:
+    - CAM_FRONT
+    - CAM_FRONT_LEFT
+    - CAM_FRONT_RIGHT
+  front4:
+    - CAM_FRONT
+    - CAM_FRONT_LEFT
+    - CAM_FRONT_RIGHT
+    - CAM_BACK
+  no_rear:
+    - CAM_FRONT
+    - CAM_FRONT_LEFT
+    - CAM_FRONT_RIGHT
+  no_left:
+    - CAM_FRONT
+    - CAM_FRONT_RIGHT
+    - CAM_BACK
+    - CAM_BACK_RIGHT
+  no_right:
+    - CAM_FRONT
+    - CAM_FRONT_LEFT
+    - CAM_BACK
+    - CAM_BACK_LEFT
+
+qa_types:
+  closest_object:
+    enabled: true
+    templates:
+      - "Where is the closest {category} in front of the ego vehicle?"
+      - "Where is the nearest object in the {direction} region?"
+      - "What is the relative position of the nearest {category}?"
+  ego_path:
+    enabled: true
+    templates:
+      - "Is there any {category} blocking the ego lane?"
+      - "Is there any object in the ego path?"
+      - "Which object is most relevant to the ego vehicle's near-term driving?"
+  spatial_relation:
+    enabled: true
+    templates:
+      - "Is the {category} to the left or right of the ego vehicle?"
+      - "Is the {category} in front of or behind the ego vehicle?"
+      - "Is the {category} in the front-left or front-right region?"
+  unknown:
+    enabled: true
+    templates:
+      - "Is there a {category} in the {region} region?"
+      - "Can the current camera setup observe the {region} area?"
+
+regions:
+  front:     { x_min: 5,  x_max: 80, y_min: -2, y_max: 2 }
+  front-left:  { x_min: 5,  x_max: 80, y_min: 2,  y_max: 40 }
+  front-right: { x_min: 5,  x_max: 80, y_min: -40, y_max: -2 }
+  rear:      { x_min: -20, x_max: -5, y_min: -2, y_max: 2 }
+  rear-left:   { x_min: -20, x_max: -5, y_min: 2,  y_max: 40 }
+  rear-right:  { x_min: -20, x_max: -5, y_min: -40, y_max: -2 }
+  left:      { x_min: -5,  x_max: 5,  y_min: 2,  y_max: 40 }
+  right:     { x_min: -5,  x_max: 5,  y_min: -40, y_max: -2 }
+
+output:
+  train_qa: outputs/ego3dqa/nusc_train_ego3dqa.jsonl
+  val_qa: outputs/ego3dqa/nusc_val_ego3dqa.jsonl

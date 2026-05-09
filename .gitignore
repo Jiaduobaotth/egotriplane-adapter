@@ -1,0 +1,26 @@
+# Virtual environments
+3dvlm/
+list/
+venv/
+
+# Data
+data/
+
+# Training outputs (checkpoints are large)
+outputs/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Claude Code
+.claude/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

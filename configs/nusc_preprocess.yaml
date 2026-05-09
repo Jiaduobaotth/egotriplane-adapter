@@ -1,0 +1,44 @@
+# nuScenes preprocessing configuration
+nusc:
+  root: /data/nuscenes
+  version: v1.0-trainval
+
+preprocess:
+  max_object_distance: 60.0
+  keyframes_only: true
+  filter_no_box: true
+
+category_mapping:
+  vehicle:
+    - vehicle.car
+    - vehicle.truck
+    - vehicle.bus.rigid
+    - vehicle.bus.bendy
+    - vehicle.trailer
+    - vehicle.construction
+    - vehicle.emergency.police
+    - vehicle.emergency.ambulance
+  pedestrian:
+    - human.pedestrian.adult
+    - human.pedestrian.child
+    - human.pedestrian.construction_worker
+    - human.pedestrian.police_officer
+  cyclist:
+    - vehicle.bicycle
+    - vehicle.motorcycle
+  barrier:
+    - movable_object.barrier
+  traffic_cone:
+    - movable_object.trafficcone
+  ignore:
+    - movable_object.debris
+    - movable_object.pushable_pullable
+    - animal
+    - static_object.bicycle_rack
+    - human.pedestrian.personal_mobility
+    - human.pedestrian.stroller
+    - human.pedestrian.wheelchair
+
+output:
+  train_index: outputs/ego3dqa/nusc_train_index.jsonl
+  val_index: outputs/ego3dqa/nusc_val_index.jsonl

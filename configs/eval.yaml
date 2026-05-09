@@ -1,0 +1,35 @@
+# Evaluation configuration
+eval:
+  checkpoint: outputs/checkpoints/stage2/best.pt
+  batch_size: 8
+  num_workers: 4
+
+test_splits:
+  - nusc_val_6cam
+  - nusc_val_5cam_random
+  - nusc_val_4cam_random
+  - nusc_val_3cam_random
+  - nusc_val_front3
+  - nusc_val_no_rear
+  - nusc_val_unseen_subset
+
+metrics:
+  - answer_accuracy
+  - object_category_accuracy
+  - xbin_accuracy
+  - ybin_accuracy
+  - direction_accuracy
+  - lane_relation_accuracy
+  - visibility_accuracy
+  - bev_center_error
+  - top1_grounding_accuracy
+  - unknown_accuracy
+  - hallucination_rate
+  - robustness_score_r4cam
+  - robustness_score_r3cam
+
+output:
+  preds: outputs/eval/preds.jsonl
+  results_csv: outputs/eval/results.csv
+  results_md: outputs/eval/results.md
+  vis_dir: outputs/eval/vis/

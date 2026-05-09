@@ -1,0 +1,107 @@
+# Stage 1: Adapter 3D Pretrain (perception-supervised, NO VQA)
+#
+# Trains: EgoTriPlaneAdapter + 3D CenterDetHead + BEVSegHead (optional)
+# Frozen: vision backbone, LLM, tokenizer, language decoder
+#
+# Loss: L = lambda_det * L_3d_det + lambda_bev * L_bev_seg [+ lambda_occ * L_occ]
+
+training_stage: "adapter_3d_pretrain"
+
+# ---- Training flags ----
+use_vqa_loss: false
+use_language_loss: false
+use_3d_detection_loss: true
+use_bev_seg_loss: true
+use_occupancy_loss: false
+
+train:
+  seed: 42
+  num_epochs: 50
+  batch_size: 2                   # small batch; use grad accumulation for effective batch
+  gradient_accumulation_steps: 4
+  learning_rate: 1e-4
+  weight_decay: 0.01
+  warmup_steps: 500
+  max_grad_norm: 1.0
+  num_workers: 4
+  mixed_precision: fp16
+
+# ---- Freezing config ----
+freeze:
+  freeze_vision_backbone: true
+  unfreeze_last_n_layers: 0       # set >0 to unfreeze last N layers of vision backbone
+  freeze_llm: true
+  freeze_tokenizer: true
+
+model:
+  vision_encoder: openai/clip-vit-large-patch14
+  hidden_dim: 512
+  multi_scale: false               # set true for multi-scale backbone features
+  multi_scale_mode: concat         # "concat", "sum", "hierarchical"
+  triplane:
+    x_range: [-20.0, 80.0]
+    y_range: [-40.0, 40.0]
+    z_range: [-3.0, 8.0]
+    sx: 96
+    sy: 96
+    sz: 48
+    patch_size: 8
+  use_ray_embedding: true
+  aggregation: mean                # "mean" or "attention"
+
+# ---- Detection head ----
+detection:
+  num_classes: 5                   # vehicle, pedestrian, cyclist, barrier, traffic_cone
+  class_list: ["vehicle", "pedestrian", "cyclist", "barrier", "traffic_cone"]
+  max_objects: 50
+  heatmap_sigma: 1.5
+
+# ---- BEV segmentation head ----
+bev_seg:
+  enabled: true
+  num_classes: 1                   # 1 = binary occupancy, >1 = multi-class semantic
+  loss_type: "bce+dice"            # "bce", "ce", "dice", "bce+dice", "ce+dice"
+  dice_weight: 0.5
+  bev_x_range: [-20.0, 80.0]
+  bev_y_range: [-40.0, 40.0]
+  bev_resolution: 0.5
+
+# ---- Loss weights ----
+loss:
+  lambda_det: 1.0
+  lambda_bev: 1.0
+  lambda_occ: 0.0                  # disabled by default
+
+  det_loss:
+    w_heatmap: 1.0
+    w_offset: 0.1
+    w_size: 0.1
+    w_yaw: 0.1
+    w_z: 0.05
+    use_focal: true
+    focal_alpha: 0.25
+    focal_gamma: 2.0
+
+  bev_seg_loss:
+    loss_type: "bce+dice"
+    dice_weight: 0.5
+
+data:
+  index_file: outputs/ego3dqa/nusc_train_index.jsonl
+  features_dir: outputs/features/nusc_train_clip_features/
+  camera_dropout: true
+  min_cameras: 3
+  max_cameras: 6
+  build_bev_mask: false             # TODO: set true when BEV label generation is ready
+
+checkpoint:
+  save_dir: outputs/checkpoints/adapter_3d_pretrain/
+  save_every: 5
+  save_top_k: 3
+  metric: total_loss
+  mode: min
+
+logging:
+  log_every: 10
+  wandb_project: egotriplane-adapter
+  wandb_run: adapter_3d_pretrain
