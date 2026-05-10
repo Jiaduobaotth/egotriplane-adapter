@@ -165,7 +165,6 @@ class VisionEncoderWrapper(nn.Module):
             temporal_patch_size = 1
 
         spatial_merge_size = getattr(model.config, 'spatial_merge_size', 2)
-
         hidden_dim = model.config.hidden_size
 
         # Free LLM memory immediately
@@ -314,20 +313,27 @@ class VisionEncoderWrapper(nn.Module):
         else:
             raise TypeError(f"Unexpected vision encoder output type: {type(outputs)}")
 
-        # Reshape flat tokens back to [B, n_tokens, D] where n_tokens after merger
-        # = h_grid * w_grid / spatial_merge_size^2
-        S = self.spatial_merge_size
-        n_tokens = (h_grid // S) * (w_grid // S)
+        # Reshape flat tokens back to [B, n_tokens, D]
+        # The vision encoder may or may not apply spatial merging — infer from output.
         if last_hidden.dim() == 2:
+            n_tokens = last_hidden.shape[0] // B
+            actual_dim = last_hidden.shape[1]
+            # Update hidden_dim to actual output dim (may differ from config for some models)
+            if actual_dim != self.hidden_dim:
+                self.hidden_dim = actual_dim
             last_hidden = last_hidden.view(B, n_tokens, -1)
+            # Infer output grid from token count (assuming square-ish merge)
+            # Keep _last_grid as the pre-merge grid for backward compat;
+            # downstream code reconstructs layout from n_tokens + _last_grid ratio.
+        else:
+            n_tokens = last_hidden.shape[1]
 
-        # Update grid for downstream adapters (after spatial merge)
-        merged_grid = (h_grid // S, w_grid // S)
-        self._last_grid = merged_grid
+        # Update grid for downstream adapters
+        self._last_grid = (h_grid, w_grid)
 
         result = {
             "last_hidden_state": last_hidden,
-            "patch_grid": merged_grid,
+            "patch_grid": self._last_grid,
         }
         if self.output_hidden_states and hasattr(outputs, 'hidden_states') and outputs.hidden_states:
             result["hidden_states"] = list(outputs.hidden_states)
