@@ -30,6 +30,7 @@ class VisionEncoderWrapper(nn.Module):
                  freeze_until_layer: int = 0,
                  output_hidden_states: bool = True,
                  output_layers: Optional[List[int]] = None,
+                 local_files_only: bool = True,
                  device: str = "cuda"):
         super().__init__()
         self.backbone_name = backbone
@@ -37,7 +38,8 @@ class VisionEncoderWrapper(nn.Module):
         self.freeze = freeze
         self.freeze_until_layer = freeze_until_layer
         self.output_hidden_states = output_hidden_states
-        self.output_layers = output_layers  # which ViT layers to return (None = last only)
+        self.output_layers = output_layers
+        self.local_files_only = local_files_only
         self.device_str = device
 
         self.encoder, self.hidden_dim, self.patch_size, self.grid_size = \
@@ -68,10 +70,10 @@ class VisionEncoderWrapper(nn.Module):
         }.get(backbone, "openai/clip-vit-large-patch14")
 
         try:
-            model = CLIPVisionModel.from_pretrained(model_id)
+            model = CLIPVisionModel.from_pretrained(model_id, local_files_only=self.local_files_only)
         except Exception:
             # Offline fallback: initialize from config with random weights
-            cfg = CLIPVisionConfig.from_pretrained(model_id)
+            cfg = CLIPVisionConfig.from_pretrained(model_id, local_files_only=self.local_files_only)
             model = CLIPVisionModel(cfg)
 
         patch_size = model.config.patch_size
@@ -119,8 +121,9 @@ class VisionEncoderWrapper(nn.Module):
         try:
             full_model = VLModel.from_pretrained(
                 model_id,
-                torch_dtype=torch.float16,  # fp16 to fit full VLM in GPU
+                torch_dtype=torch.float16,
                 device_map=self.device_str,
+                local_files_only=self.local_files_only,
             )
         except Exception as e:
             raise RuntimeError(

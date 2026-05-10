@@ -77,6 +77,8 @@ def parse_args():
                    help="Freeze vision backbone completely")
     p.add_argument("--freeze_vision_until", type=int, default=0,
                    help="Freeze first N ViT layers, train the rest")
+    p.add_argument("--online", action="store_true", default=False,
+                   help="Allow downloading models from internet (default: offline, use local cache)")
 
     # Data
     p.add_argument("--nusc_root", type=str, default="./data")
@@ -158,6 +160,7 @@ def main():
         freeze=args.freeze_vision,
         freeze_until_layer=args.freeze_vision_until,
         output_hidden_states=False,
+        local_files_only=not args.online,
     )
     vision_hidden_dim = vision_encoder.get_hidden_dim()
     patch_grid = vision_encoder.get_grid_size()
