@@ -164,7 +164,9 @@ def main():
     )
     vision_hidden_dim = vision_encoder.get_hidden_dim()
     patch_grid = vision_encoder.get_grid_size()
-    print(f"  Hidden dim: {vision_hidden_dim}, patch grid: {patch_grid}")
+    print(f"  Hidden dim: {vision_hidden_dim}, patch_size: {vision_encoder.patch_size}, "
+          f"temporal_patch_size: {vision_encoder.temporal_patch_size}, "
+          f"grid: {patch_grid}, resize_block: {block_size}")
 
     print("Building EgoTriPlaneAdapter...")
     adapter = EgoTriPlaneAdapter(
@@ -248,6 +250,11 @@ def main():
     # ============================================================
     # Dataset
     # ============================================================
+    # Effective resize granularity: patch_size * temporal_patch_size ensures
+    # H*W is divisible by temporal_patch_size * patch_size^2 (required by
+    # Qwen VL's 3D patch embedding).
+    block_size = vision_encoder.patch_size * vision_encoder.temporal_patch_size
+
     print("Loading dataset...")
     train_ds = NuscImageDataset(
         nusc_root=args.nusc_root,
@@ -260,6 +267,7 @@ def main():
         num_classes=args.num_classes,
         max_objects=args.max_objects,
         augment=not args.no_augment,
+        patch_size=block_size,
     )
     print(f"  Train samples: {len(train_ds)}")
 

@@ -42,7 +42,7 @@ class VisionEncoderWrapper(nn.Module):
         self.local_files_only = local_files_only
         self.device_str = device
 
-        self.encoder, self.hidden_dim, self.patch_size, self.grid_size = \
+        self.encoder, self.hidden_dim, self.patch_size, self.temporal_patch_size, self.grid_size = \
             self._build_encoder(backbone, image_size)
 
         if freeze:
@@ -79,7 +79,7 @@ class VisionEncoderWrapper(nn.Module):
         patch_size = model.config.patch_size
         hidden_dim = model.config.hidden_size
 
-        return model, hidden_dim, patch_size, None  # grid computed dynamically
+        return model, hidden_dim, patch_size, 1, None  # grid computed dynamically
 
     def _build_qwen_vl(self, backbone: str, image_size: int):
         """Build Qwen2.5-VL / Qwen3-VL vision encoder.
@@ -155,13 +155,21 @@ class VisionEncoderWrapper(nn.Module):
             patch_size = model.patch_size
         else:
             patch_size = 14
+
+        if hasattr(model.config, 'temporal_patch_size'):
+            temporal_patch_size = model.config.temporal_patch_size
+        elif hasattr(model, 'patch_embed') and hasattr(model.patch_embed, 'temporal_patch_size'):
+            temporal_patch_size = model.patch_embed.temporal_patch_size
+        else:
+            temporal_patch_size = 1
+
         hidden_dim = model.config.hidden_size
 
         # Free LLM memory immediately
         del full_model
         torch.cuda.empty_cache()
 
-        return model, hidden_dim, patch_size, None  # grid computed dynamically
+        return model, hidden_dim, patch_size, temporal_patch_size, None  # grid computed dynamically
 
     def _build_torchvision(self, backbone: str, image_size: int):
         """Build torchvision ViT (lightweight, no pretrained weights needed)."""
@@ -181,7 +189,7 @@ class VisionEncoderWrapper(nn.Module):
         # Use random initialization (no pretrained weights needed)
         model = torchvision.models.__dict__[vit_name](weights=None, image_size=image_size)
         # Adapt: torchvision ViT returns [B, N+1, D] with CLS token
-        return model, hidden_dim, patch_size, None  # grid computed dynamically
+        return model, hidden_dim, patch_size, 1, None  # grid computed dynamically
 
     def _apply_freezing(self, freeze_until_layer: int):
         """Freeze vision encoder layers."""
@@ -340,6 +348,12 @@ class VisionEncoderWrapper(nn.Module):
             result["hidden_states"] = hidden_states
 
         return result
+
+    def get_patch_size(self) -> int:
+        return self.patch_size
+
+    def get_temporal_patch_size(self) -> int:
+        return self.temporal_patch_size
 
     def get_grid_size(self) -> Tuple[int, int]:
         if hasattr(self, '_last_grid') and self._last_grid is not None:

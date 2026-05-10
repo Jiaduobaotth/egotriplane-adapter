@@ -77,7 +77,8 @@ class NuscImageDataset(Dataset):
                  num_classes: int = 5,
                  max_objects: int = 50,
                  max_distance: float = 60.0,
-                 augment: bool = True):
+                 augment: bool = True,
+                 patch_size: int = 14):
         super().__init__()
         self.nusc_root = Path(nusc_root)
         self.image_size = image_size
@@ -94,6 +95,7 @@ class NuscImageDataset(Dataset):
         self.max_objects = max_objects
         self.max_distance = max_distance
         self.augment = augment and split == "train"
+        self.patch_size = patch_size
 
         self.cell_x = (x_range[1] - x_range[0]) / grid_sx
         self.cell_y = (y_range[1] - y_range[0]) / grid_sy
@@ -105,8 +107,6 @@ class NuscImageDataset(Dataset):
 
         # Build sample list
         self.samples = self._build_sample_list(split)
-
-        self.patch_size = 14  # ViT patch size for rounding image dimensions
 
         # Image transforms (resize keeping aspect ratio happens separately)
         if augment:
