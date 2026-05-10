@@ -134,7 +134,19 @@ class VisionEncoderWrapper(nn.Module):
             )
 
         # Extract vision tower and convert to fp32 (avoids grad underflow)
-        model = full_model.visual
+        # Qwen2.5-VL: model.visual, Qwen3-VL: model.model.visual
+        if hasattr(full_model, 'visual'):
+            model = full_model.visual
+        elif hasattr(full_model, 'model') and hasattr(full_model.model, 'visual'):
+            model = full_model.model.visual
+        else:
+            # Print available top-level attrs to help debug
+            attrs = [a for a in dir(full_model) if not a.startswith('_')]
+            raise AttributeError(
+                f"Cannot find vision encoder in {type(full_model).__name__}.\n"
+                f"  Tried: .visual, .model.visual\n"
+                f"  Available attributes: {sorted(attrs)[:30]}"
+            )
         model = model.to(dtype=torch.float32)
 
         if hasattr(model.config, 'patch_size'):
