@@ -329,6 +329,7 @@ def main():
             imgs_batch = torch.stack([img.to(device) for img in images], dim=0)
             enc_out = vision_encoder(imgs_batch)
             all_feats = enc_out["last_hidden_state"]  # [N_cam, N_patches, D]
+            patch_grid = enc_out["patch_grid"]  # (Hf, Wf) from actual input shape
 
             # Split back into per-camera dict (no detach — grad flows through)
             features_by_camera = {}
@@ -338,7 +339,7 @@ def main():
                     "K": intrinsics[i].to(device),
                     "T_ego_cam": extrinsics[i].to(device),
                     "image_size": image_sizes[i].tolist(),
-                    "patch_grid": list(vision_encoder.get_grid_size()),
+                    "patch_grid": list(patch_grid),
                 }
 
             # ====================================================

@@ -481,10 +481,8 @@ class EgoTriPlaneAdapter(nn.Module):
 
             if f.dim() == 2:
                 N, D = f.shape
-                Hf = Wf = int(math.sqrt(N))
-                if Hf * Wf != N:
-                    pg = cam_data.get("patch_grid", [16, 16])
-                    Hf, Wf = pg[0], pg[1]
+                pg = cam_data.get("patch_grid", [16, 16])
+                Hf, Wf = pg[0], pg[1]
                 f_2d = f.reshape(1, Hf, Wf, D).permute(0, 3, 1, 2)
             elif f.dim() == 3:
                 Hf, Wf, D = f.shape

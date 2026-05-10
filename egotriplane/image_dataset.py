@@ -106,8 +106,9 @@ class NuscImageDataset(Dataset):
         # Build sample list
         self.samples = self._build_sample_list(split)
 
-        # Image transforms with letterbox (preserve aspect ratio)
-        self.letterbox = _LetterboxResize(image_size)
+        self.patch_size = 14  # ViT patch size for rounding image dimensions
+
+        # Image transforms (resize keeping aspect ratio happens separately)
         if augment:
             self.transform = T.Compose([
                 T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.1, hue=0.05),
@@ -180,15 +181,16 @@ class NuscImageDataset(Dataset):
             except (FileNotFoundError, OSError):
                 continue
 
-            # Letterbox resize (keep aspect ratio, pad to square), then transform
-            img = self.letterbox(img)
-            img_tensor = self.transform(img)  # [3, H, W]
+            # Resize keeping aspect ratio (Qwen VL supports native resolution)
+            img, scale, new_h, new_w = _resize_keep_aspect(
+                img, self.image_size, self.patch_size)
+            img_tensor = self.transform(img)  # [3, new_h, new_w]
 
-            # Intrinsics (adjusted for letterbox scale + padding)
+            # Intrinsics (adjusted for scale only, no padding)
             K_orig = cs["camera_intrinsic"]
             K = torch.tensor([
-                [K_orig[0][0] * self.letterbox.scale, 0, K_orig[0][2] * self.letterbox.scale + self.letterbox.pad_w],  # noqa: E501
-                [0, K_orig[1][1] * self.letterbox.scale, K_orig[1][2] * self.letterbox.scale + self.letterbox.pad_h],  # noqa: E501
+                [K_orig[0][0] * scale, 0, K_orig[0][2] * scale],
+                [0, K_orig[1][1] * scale, K_orig[1][2] * scale],
                 [0, 0, 1],
             ], dtype=torch.float32)
 
@@ -198,8 +200,7 @@ class NuscImageDataset(Dataset):
             images.append(img_tensor)
             intrinsics.append(K)
             extrinsics.append(T_ego_cam)
-            image_sizes.append(torch.tensor([self.letterbox.target_size, self.letterbox.target_size],
-                               dtype=torch.long))
+            image_sizes.append(torch.tensor([new_h, new_w], dtype=torch.long))
             valid_cam_names.append(cam_name)
 
         # --- Get ego pose and annotations ---
@@ -343,37 +344,22 @@ class NuscImageDataset(Dataset):
 
 
 # ---------------------------------------------------------------------------
-# Letterbox resize (preserve aspect ratio)
+# Resize keeping aspect ratio
 # ---------------------------------------------------------------------------
 
-class _LetterboxResize:
-    """Resize PIL image preserving aspect ratio, pad to square.
+def _resize_keep_aspect(img: Image.Image, target_long_side: int,
+                        patch_size: int = 14) -> Tuple[Image.Image, float, int, int]:
+    """Resize PIL image so the longer side = target_long_side, keeping aspect ratio.
 
-    nuScenes images are 1600×900 (16:9). Direct square resize squishes them.
-    This keeps the original aspect ratio and pads short sides.
-
-    After calling, read .scale, .pad_w, .pad_h for intrinsics update.
+    Rounds dimensions to nearest patch_size multiple for ViT compatibility.
+    Returns (resized_img, scale, new_h, new_w).
     """
-
-    def __init__(self, target_size: int, fill_color: tuple = (114, 114, 114)):
-        self.target_size = target_size
-        self.fill_color = fill_color
-        self.scale = 1.0
-        self.pad_w = 0
-        self.pad_h = 0
-
-    def __call__(self, img: Image.Image) -> Image.Image:
-        w, h = img.size
-        self.scale = self.target_size / max(w, h)
-        new_w, new_h = int(w * self.scale), int(h * self.scale)
-        img = img.resize((new_w, new_h), Image.BILINEAR)
-
-        self.pad_w = (self.target_size - new_w) // 2
-        self.pad_h = (self.target_size - new_h) // 2
-        padded = Image.new("RGB", (self.target_size, self.target_size),
-                           color=self.fill_color)
-        padded.paste(img, (self.pad_w, self.pad_h))
-        return padded
+    w, h = img.size
+    scale = target_long_side / max(w, h)
+    new_w = round(w * scale / patch_size) * patch_size
+    new_h = round(h * scale / patch_size) * patch_size
+    img = img.resize((new_w, new_h), Image.BILINEAR)
+    return img, scale, new_h, new_w
 
 
 # ---------------------------------------------------------------------------

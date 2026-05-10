@@ -77,10 +77,9 @@ class VisionEncoderWrapper(nn.Module):
             model = CLIPVisionModel(cfg)
 
         patch_size = model.config.patch_size
-        grid_size = image_size // patch_size
         hidden_dim = model.config.hidden_size
 
-        return model, hidden_dim, patch_size, grid_size
+        return model, hidden_dim, patch_size, None  # grid computed dynamically
 
     def _build_qwen_vl(self, backbone: str, image_size: int):
         """Build Qwen2.5-VL / Qwen3-VL vision encoder.
@@ -144,14 +143,13 @@ class VisionEncoderWrapper(nn.Module):
             patch_size = model.patch_size
         else:
             patch_size = 14
-        grid_size = image_size // patch_size
         hidden_dim = model.config.hidden_size
 
         # Free LLM memory immediately
         del full_model
         torch.cuda.empty_cache()
 
-        return model, hidden_dim, patch_size, grid_size
+        return model, hidden_dim, patch_size, None  # grid computed dynamically
 
     def _build_torchvision(self, backbone: str, image_size: int):
         """Build torchvision ViT (lightweight, no pretrained weights needed)."""
@@ -170,10 +168,8 @@ class VisionEncoderWrapper(nn.Module):
 
         # Use random initialization (no pretrained weights needed)
         model = torchvision.models.__dict__[vit_name](weights=None, image_size=image_size)
-        grid_size = image_size // patch_size
-
         # Adapt: torchvision ViT returns [B, N+1, D] with CLS token
-        return model, hidden_dim, patch_size, grid_size
+        return model, hidden_dim, patch_size, None  # grid computed dynamically
 
     def _apply_freezing(self, freeze_until_layer: int):
         """Freeze vision encoder layers."""
@@ -200,14 +196,16 @@ class VisionEncoderWrapper(nn.Module):
         """Extract patch features from images.
 
         Args:
-            images: [B, 3, H, W] RGB images, normalized
+            images: [B, 3, H, W] RGB images, normalized (can be non-square)
 
         Returns:
             dict with:
               - "last_hidden_state": [B, N_patches, hidden_dim]
               - "hidden_states": list of [B, N_patches, hidden_dim] (if output_hidden_states)
-              - "patch_grid": (Hf, Wf) feature map size
+              - "patch_grid": (Hf, Wf) feature map size (computed from actual input)
         """
+        B, C, H, W = images.shape
+        self._last_grid = (H // self.patch_size, W // self.patch_size)
         B = images.shape[0]
 
         if self.backbone_name.startswith("clip_"):
@@ -227,7 +225,7 @@ class VisionEncoderWrapper(nn.Module):
         last_hidden = outputs.last_hidden_state[:, 1:, :]
         result = {
             "last_hidden_state": last_hidden,
-            "patch_grid": (self.grid_size, self.grid_size),
+            "patch_grid": self._last_grid,
         }
 
         if self.output_hidden_states and outputs.hidden_states:
@@ -265,7 +263,7 @@ class VisionEncoderWrapper(nn.Module):
             raise TypeError(f"Unexpected vision encoder output type: {type(outputs)}")
 
         # Remove CLS token if present (most ViT-based encoders prepend one)
-        expected_tokens = self.grid_size * self.grid_size
+        expected_tokens = self._last_grid[0] * self._last_grid[1]
         if last_hidden.shape[1] == expected_tokens + 1:
             last_hidden = last_hidden[:, 1:, :]
         elif last_hidden.shape[1] != expected_tokens:
@@ -274,7 +272,7 @@ class VisionEncoderWrapper(nn.Module):
 
         result = {
             "last_hidden_state": last_hidden,
-            "patch_grid": (self.grid_size, self.grid_size),
+            "patch_grid": self._last_grid,
         }
         if self.output_hidden_states and hasattr(outputs, 'hidden_states') and outputs.hidden_states:
             result["hidden_states"] = list(outputs.hidden_states)
@@ -313,7 +311,7 @@ class VisionEncoderWrapper(nn.Module):
 
         result = {
             "last_hidden_state": last_hidden,
-            "patch_grid": (self.grid_size, self.grid_size),
+            "patch_grid": self._last_grid,
         }
         if self.output_hidden_states:
             if self.output_layers:
@@ -324,7 +322,11 @@ class VisionEncoderWrapper(nn.Module):
         return result
 
     def get_grid_size(self) -> Tuple[int, int]:
-        return (self.grid_size, self.grid_size)
+        if hasattr(self, '_last_grid') and self._last_grid is not None:
+            return self._last_grid
+        # Fallback for square image estimate
+        g = self.image_size // self.patch_size
+        return (g, g)
 
     def get_hidden_dim(self) -> int:
         return self.hidden_dim
