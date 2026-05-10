@@ -241,13 +241,6 @@ def main():
 
     optimizer = optim.AdamW(trainable, lr=args.lr, weight_decay=args.wd)
 
-    steps_per_epoch = 300  # rough estimate
-    total_steps = args.epochs * steps_per_epoch
-    scheduler = optim.lr_scheduler.OneCycleLR(
-        optimizer, max_lr=args.lr, total_steps=total_steps,
-        pct_start=args.warmup / max(total_steps, 1),
-    )
-
     # ============================================================
     # Dataset
     # ============================================================
@@ -274,6 +267,15 @@ def main():
         pin_memory=True,
         collate_fn=image_collate_fn,
     )
+
+    # Scheduler: use actual optimizer steps per epoch
+    steps_per_epoch = max(1, len(train_loader) // args.grad_accum)
+    total_steps = args.epochs * steps_per_epoch
+    scheduler = optim.lr_scheduler.OneCycleLR(
+        optimizer, max_lr=args.lr, total_steps=total_steps,
+        pct_start=args.warmup / max(total_steps, 1),
+    )
+    print(f"  Scheduler: total_steps={total_steps}, warmup={args.warmup}")
 
     # ============================================================
     # Checkpoint dir
@@ -302,6 +304,7 @@ def main():
         optimizer.zero_grad()
 
         pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs}")
+        batches_since_log = 0
         for batch_idx, batch in enumerate(pbar):
             # Handle collated batch (single sample or list)
             if isinstance(batch, list):
@@ -379,9 +382,11 @@ def main():
             # ====================================================
             for k, v in losses.items():
                 epoch_losses[k] += v.item() if isinstance(v, torch.Tensor) else float(v)
+            batches_since_log += 1
 
             if global_step > 0 and global_step % args.log_every == 0:
-                avg = {k: v / args.log_every for k, v in epoch_losses.items()}
+                n = max(batches_since_log, 1)
+                avg = {k: v / n for k, v in epoch_losses.items()}
                 lr = scheduler.get_last_lr()[0]
                 pbar.set_postfix({
                     "loss": f"{avg.get('total', 0):.3f}",
@@ -393,6 +398,7 @@ def main():
                 if global_step == args.log_every:
                     _sanity_print(sample, losses, cam_names, args)
                 epoch_losses = defaultdict(float)
+                batches_since_log = 0
 
         # --- End of epoch ---
         avg_loss = epoch_total / max(epoch_steps, 1)
