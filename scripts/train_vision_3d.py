@@ -104,6 +104,7 @@ def parse_args():
     p.add_argument("--w_offset", type=float, default=0.1)
     p.add_argument("--w_size", type=float, default=0.1)
     p.add_argument("--w_yaw", type=float, default=0.1)
+    p.add_argument("--w_z", type=float, default=0.1)
 
     # Checkpointing & logging
     p.add_argument("--out_dir", type=str, default="outputs/vision3d_debug/")
@@ -221,7 +222,7 @@ def main():
             "w_offset": args.w_offset,
             "w_size": args.w_size,
             "w_yaw": args.w_yaw,
-            "w_z": 0.0,
+            "w_z": args.w_z,
             "num_classes": args.num_classes,
             "use_focal": True,
             "grid_sx": 96, "grid_sy": 96,
@@ -355,6 +356,7 @@ def main():
                 "gt_offset": sample["gt_offset"].to(device),
                 "gt_size": sample["gt_size"].to(device),
                 "gt_yaw": sample["gt_yaw"].to(device),
+                "gt_z": sample["gt_z"].to(device),
                 "gt_mask": sample["gt_mask"].to(device),
                 "gt_obj_idx": sample["gt_obj_idx"].to(device),
             }

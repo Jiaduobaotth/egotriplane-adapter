@@ -218,6 +218,7 @@ class NuscImageDataset(Dataset):
             "gt_offset": det_targets["offset"],
             "gt_size": det_targets["size"],
             "gt_yaw": det_targets["yaw"],
+            "gt_z": det_targets["z"],
             "gt_obj_idx": det_targets["obj_idx"],
             "num_objects": det_targets["num_objects"],
         }
@@ -237,6 +238,7 @@ class NuscImageDataset(Dataset):
         offset = torch.zeros(M, 2)
         size = torch.zeros(M, 3)
         yaw = torch.zeros(M, 2)
+        z_val = torch.zeros(M, 1)
         obj_idx = torch.zeros(M, 2, dtype=torch.long)
         heatmap = torch.zeros(C, H, W)
 
@@ -302,6 +304,7 @@ class NuscImageDataset(Dataset):
             offset[obj_count] = torch.tensor([dx, dy])
             size[obj_count] = torch.tensor([w, l, h])
             yaw[obj_count] = torch.tensor([np.sin(yaw_ego), np.cos(yaw_ego)])
+            z_val[obj_count] = torch.tensor([cz])
             obj_idx[obj_count] = torch.tensor([gx, gy])
 
             # Gaussian heatmap
@@ -327,6 +330,7 @@ class NuscImageDataset(Dataset):
             "offset": offset,
             "size": size,
             "yaw": yaw,
+            "z": z_val,
             "obj_idx": obj_idx,
             "num_objects": obj_count,
         }

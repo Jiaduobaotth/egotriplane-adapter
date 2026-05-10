@@ -102,12 +102,14 @@ class DetectionLoss(nn.Module):
                 "offset": [B, 2, H, W]
                 "size": [B, 3, H, W]
                 "yaw": [B, 2, H, W]
+                "z": [B, 1, H, W]
                 "objectness": [B, 1, H, W] (optional)
             targets: dict with:
                 "gt_hm": [B, num_classes, H, W] ground truth gaussian heatmaps
                 "gt_offset": [B, max_obj, 2] (dx, dy) in cell units
                 "gt_size": [B, max_obj, 3] (w, l, h)
                 "gt_yaw": [B, max_obj, 2] (sin, cos)
+                "gt_z": [B, max_obj, 1] center z (height)
                 "gt_mask": [B, max_obj] boolean mask for valid objects
                 "gt_obj_idx": [B, max_obj, 2] (gx, gy) cell indices for each object
 
@@ -121,6 +123,7 @@ class DetectionLoss(nn.Module):
         gt_offset = targets["gt_offset"]
         gt_size = targets["gt_size"]
         gt_yaw = targets["gt_yaw"]
+        gt_z = targets.get("gt_z")
 
         if gt_hm.dim() == 3:
             gt_hm = gt_hm.unsqueeze(0)
@@ -134,6 +137,8 @@ class DetectionLoss(nn.Module):
             gt_size = gt_size.unsqueeze(0)
         if gt_yaw.dim() == 2:
             gt_yaw = gt_yaw.unsqueeze(0)
+        if gt_z is not None and gt_z.dim() == 2:
+            gt_z = gt_z.unsqueeze(0)
 
         B = preds["heatmap"].shape[0]
         device = preds["heatmap"].device
@@ -146,6 +151,7 @@ class DetectionLoss(nn.Module):
         l_offset = torch.tensor(0.0, device=device)
         l_size = torch.tensor(0.0, device=device)
         l_yaw = torch.tensor(0.0, device=device)
+        l_z = torch.tensor(0.0, device=device)
 
         for b in range(B):
             n_obj = gt_mask[b].sum().int().item()
@@ -170,10 +176,17 @@ class DetectionLoss(nn.Module):
                 gt_yaw_val = gt_yaw[b, o]                        # [2]
                 l_yaw = l_yaw + F.l1_loss(pred_yaw, gt_yaw_val)
 
+                # Z loss (center height)
+                if gt_z is not None:
+                    pred_z = preds["z"][b, 0, gy, gx]           # scalar
+                    gt_z_val = gt_z[b, o]                        # [1]
+                    l_z = l_z + F.l1_loss(pred_z, gt_z_val)
+
         total_obj = gt_mask.sum().clamp(min=1)
         l_offset = l_offset / total_obj
         l_size = l_size / total_obj
         l_yaw = l_yaw / total_obj
+        l_z = l_z / total_obj if gt_z is not None else torch.tensor(0.0, device=device)
 
         losses = {
             "det_heatmap": l_heatmap * self.w_heatmap,
@@ -181,6 +194,8 @@ class DetectionLoss(nn.Module):
             "det_size": l_size * self.w_size,
             "det_yaw": l_yaw * self.w_yaw,
         }
+        if gt_z is not None and self.w_z > 0:
+            losses["det_z"] = l_z * self.w_z
         losses["det_total"] = sum(losses.values())
         return losses
 

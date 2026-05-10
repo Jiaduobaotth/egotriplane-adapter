@@ -201,11 +201,12 @@ class CenterDetHead(nn.Module):
                 nn.ReLU(inplace=True),
                 nn.Conv2d(shared_dim, 1, 1),
             )
-        # z head for height refinement (operates on all triplane tokens to get 3D context)
+        # z head for per-cell center height prediction (on BEV features)
         self.z_head = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Conv2d(shared_dim, shared_dim, 3, padding=1),
+            nn.BatchNorm2d(shared_dim),
             nn.ReLU(inplace=True),
-            nn.Linear(hidden_dim, 1),
+            nn.Conv2d(shared_dim, 1, 1),
         )
 
     def forward(self, adapter_out: dict) -> dict:
@@ -240,6 +241,7 @@ class CenterDetHead(nn.Module):
             "offset": self.offset_head(feat),
             "size": self.size_head(feat),
             "yaw": self.yaw_head(feat),
+            "z": self.z_head(feat),
         }
         if self.use_objectness:
             outputs["objectness"] = self.obj_head(feat)
