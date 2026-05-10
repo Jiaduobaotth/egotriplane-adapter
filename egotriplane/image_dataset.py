@@ -279,6 +279,11 @@ class NuscImageDataset(Dataset):
             if dist > self.max_distance:
                 continue
 
+            # Check BEV range bounds (exclude objects whose center is outside)
+            if not (self.x_range[0] <= cx <= self.x_range[1] and
+                    self.y_range[0] <= cy <= self.y_range[1]):
+                continue
+
             w, l, h = float(anno_size[0]), float(anno_size[1]), float(anno_size[2])
 
             # Convert to grid
