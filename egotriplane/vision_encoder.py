@@ -42,7 +42,8 @@ class VisionEncoderWrapper(nn.Module):
         self.local_files_only = local_files_only
         self.device_str = device
 
-        self.encoder, self.hidden_dim, self.patch_size, self.temporal_patch_size, self.grid_size = \
+        self.encoder, self.hidden_dim, self.patch_size, self.temporal_patch_size, \
+            self.spatial_merge_size, self.grid_size = \
             self._build_encoder(backbone, image_size)
 
         if freeze:
@@ -79,7 +80,7 @@ class VisionEncoderWrapper(nn.Module):
         patch_size = model.config.patch_size
         hidden_dim = model.config.hidden_size
 
-        return model, hidden_dim, patch_size, 1, None  # grid computed dynamically
+        return model, hidden_dim, patch_size, 1, 1, None  # grid computed dynamically
 
     def _build_qwen_vl(self, backbone: str, image_size: int):
         """Build Qwen2.5-VL / Qwen3-VL vision encoder.
@@ -163,13 +164,15 @@ class VisionEncoderWrapper(nn.Module):
         else:
             temporal_patch_size = 1
 
+        spatial_merge_size = getattr(model.config, 'spatial_merge_size', 2)
+
         hidden_dim = model.config.hidden_size
 
         # Free LLM memory immediately
         del full_model
         torch.cuda.empty_cache()
 
-        return model, hidden_dim, patch_size, temporal_patch_size, None  # grid computed dynamically
+        return model, hidden_dim, patch_size, temporal_patch_size, spatial_merge_size, None
 
     def _build_torchvision(self, backbone: str, image_size: int):
         """Build torchvision ViT (lightweight, no pretrained weights needed)."""
@@ -189,7 +192,7 @@ class VisionEncoderWrapper(nn.Module):
         # Use random initialization (no pretrained weights needed)
         model = torchvision.models.__dict__[vit_name](weights=None, image_size=image_size)
         # Adapt: torchvision ViT returns [B, N+1, D] with CLS token
-        return model, hidden_dim, patch_size, 1, None  # grid computed dynamically
+        return model, hidden_dim, patch_size, 1, 1, None  # grid computed dynamically
 
     def _apply_freezing(self, freeze_until_layer: int):
         """Freeze vision encoder layers."""
@@ -262,24 +265,45 @@ class VisionEncoderWrapper(nn.Module):
     def _forward_qwen_vl(self, images):
         """Forward through Qwen VL vision encoder (Qwen2.5-VL / Qwen3-VL).
 
-        Qwen3-VL requires grid_thw; Qwen2.5-VL ignores it via **kwargs.
+        Qwen VL uses 3D patch embedding (Conv3d with kernel [T, P, P]).
+        Pixel data must be in patch-major order: for each spatial patch,
+        channels then temporal copies then spatial pixels. The image
+        processor normally does this rearrangement; we replicate it here.
         """
         B, C, H_img, W_img = images.shape
-        h_grid = H_img // self.patch_size
-        w_grid = W_img // self.patch_size
-        grid_thw = torch.tensor(
-            [[1, h_grid, w_grid]] * B, device=images.device, dtype=torch.long
-        )
+        P = self.patch_size
+        T = self.temporal_patch_size
+        h_grid = H_img // P
+        w_grid = W_img // P
+
+        # Rearrange [B, C, H, W] to patch-major format expected by 3D conv:
+        #   [B, n_patches, C, T, P, P] where n_patches = h_grid * w_grid
+        #   then flatten to 1D so view(-1, C, T, P, P) works correctly.
+        # Step 1: extract patches → [B, C, h_grid, P, w_grid, P]
+        x = images.view(B, C, h_grid, P, w_grid, P)
+        # Step 2: permute to [B, h_grid, w_grid, C, T=1, P, P]
+        x = x.permute(0, 2, 4, 1, 3, 5).contiguous()
+        # Step 3: add temporal dim → [B, h_grid, w_grid, C, T, P, P]
+        x = x.unsqueeze(4).expand(-1, -1, -1, -1, T, -1, -1)
+        # Step 4: merge batch and spatial patches, flatten temporal-channel-spatial
+        #         → [B * h_grid * w_grid * C * T * P * P] 1D tensor
+        x = x.reshape(-1)
+
+        h_grid_t = torch.full((B,), h_grid, device=images.device, dtype=torch.long)
+        w_grid_t = torch.full((B,), w_grid, device=images.device, dtype=torch.long)
+        grid_thw = torch.stack([
+            torch.ones(B, device=images.device, dtype=torch.long),
+            h_grid_t, w_grid_t,
+        ], dim=1)  # [B, 3] with (1, h_grid, w_grid) per image
 
         try:
-            outputs = self.encoder(images, grid_thw=grid_thw,
+            outputs = self.encoder(x, grid_thw=grid_thw,
                                    output_hidden_states=self.output_hidden_states)
         except TypeError:
-            # Qwen2.5-VL or older: grid_thw not accepted, or output_hidden_states not supported
             try:
-                outputs = self.encoder(images, grid_thw=grid_thw)
+                outputs = self.encoder(x, grid_thw=grid_thw)
             except TypeError:
-                outputs = self.encoder(images)
+                outputs = self.encoder(x)
 
         if hasattr(outputs, 'last_hidden_state'):
             last_hidden = outputs.last_hidden_state
@@ -290,17 +314,20 @@ class VisionEncoderWrapper(nn.Module):
         else:
             raise TypeError(f"Unexpected vision encoder output type: {type(outputs)}")
 
-        # Remove CLS token if present (most ViT-based encoders prepend one)
-        expected_tokens = self._last_grid[0] * self._last_grid[1]
-        if last_hidden.shape[1] == expected_tokens + 1:
-            last_hidden = last_hidden[:, 1:, :]
-        elif last_hidden.shape[1] != expected_tokens:
-            # Dynamic resolution or merge strategy — trust the encoder
-            pass
+        # Reshape flat tokens back to [B, n_tokens, D] where n_tokens after merger
+        # = h_grid * w_grid / spatial_merge_size^2
+        S = self.spatial_merge_size
+        n_tokens = (h_grid // S) * (w_grid // S)
+        if last_hidden.dim() == 2:
+            last_hidden = last_hidden.view(B, n_tokens, -1)
+
+        # Update grid for downstream adapters (after spatial merge)
+        merged_grid = (h_grid // S, w_grid // S)
+        self._last_grid = merged_grid
 
         result = {
             "last_hidden_state": last_hidden,
-            "patch_grid": self._last_grid,
+            "patch_grid": merged_grid,
         }
         if self.output_hidden_states and hasattr(outputs, 'hidden_states') and outputs.hidden_states:
             result["hidden_states"] = list(outputs.hidden_states)
