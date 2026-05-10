@@ -254,16 +254,24 @@ class VisionEncoderWrapper(nn.Module):
     def _forward_qwen_vl(self, images):
         """Forward through Qwen VL vision encoder (Qwen2.5-VL / Qwen3-VL).
 
-        Handles both model families' output formats:
-          - BaseModelOutputWithPooling (last_hidden_state + hidden_states)
-          - Plain tensor (older versions)
-          - list/tuple of tensors
+        Qwen3-VL requires grid_thw; Qwen2.5-VL ignores it via **kwargs.
         """
-        # Qwen3-VL may not support output_hidden_states; try with, fall back without
+        B, C, H_img, W_img = images.shape
+        h_grid = H_img // self.patch_size
+        w_grid = W_img // self.patch_size
+        grid_thw = torch.tensor(
+            [[1, h_grid, w_grid]] * B, device=images.device, dtype=torch.long
+        )
+
         try:
-            outputs = self.encoder(images, output_hidden_states=self.output_hidden_states)
+            outputs = self.encoder(images, grid_thw=grid_thw,
+                                   output_hidden_states=self.output_hidden_states)
         except TypeError:
-            outputs = self.encoder(images)
+            # Qwen2.5-VL or older: grid_thw not accepted, or output_hidden_states not supported
+            try:
+                outputs = self.encoder(images, grid_thw=grid_thw)
+            except TypeError:
+                outputs = self.encoder(images)
 
         if hasattr(outputs, 'last_hidden_state'):
             last_hidden = outputs.last_hidden_state
