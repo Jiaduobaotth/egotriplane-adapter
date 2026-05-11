@@ -241,8 +241,7 @@ class EgoTriPlaneAdapter(nn.Module):
                 feats_2d = self._fuse_multi_scale(multi_scale_feats)
                 _, _, Hf, Wf = feats_2d.shape
 
-                T_cam_ego = torch.inverse(T_ego_cam)
-                cam_center_ego = T_cam_ego[:3, 3]
+                cam_center_ego = T_ego_cam[:3, 3]  # camera position in ego frame
 
                 ray_origins, ray_directions = _compute_patch_rays(
                     cam_center_ego, K, T_ego_cam, Hf, Wf, img_size, device,
@@ -313,8 +312,7 @@ class EgoTriPlaneAdapter(nn.Module):
                 feats_2d = self._fuse_multi_scale(multi_scale_feats)
                 _, _, Hf, Wf = feats_2d.shape
 
-                T_cam_ego = torch.inverse(T_ego_cam)
-                cam_center_ego = T_cam_ego[:3, 3]
+                cam_center_ego = T_ego_cam[:3, 3]  # camera position in ego frame
 
                 ray_origins, ray_directions = _compute_patch_rays(
                     cam_center_ego, K, T_ego_cam, Hf, Wf, img_size, device,
@@ -759,8 +757,10 @@ def _scatter_plane_batched(
 
     pts_flat = pts.reshape(-1, 3)  # [gh*gw*na, 3]
 
-    # Transform to camera frame: p_cam = R @ p_ego + t
-    pts_cam = pts_flat @ R.T + t  # [N, 3]
+    # Transform ego -> camera: R is cam->ego rotation, t is cam origin in ego.
+    # Column-vector formula: p_cam = R^T @ (p_ego - t)
+    # Row-vector equivalent:   p_cam_row = (p_ego_row - t_row) @ R
+    pts_cam = (pts_flat - t.unsqueeze(0)) @ R
     z_cam = pts_cam[:, 2]
 
     # Project to pixel
