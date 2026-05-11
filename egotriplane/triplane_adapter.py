@@ -757,10 +757,9 @@ def _scatter_plane_batched(
 
     pts_flat = pts.reshape(-1, 3)  # [gh*gw*na, 3]
 
-    # Transform ego -> camera: R is cam->ego rotation, t is cam origin in ego.
-    # Column-vector formula: p_cam = R^T @ (p_ego - t)
-    # Row-vector equivalent:   p_cam_row = (p_ego_row - t_row) @ R
-    pts_cam = (pts_flat - t.unsqueeze(0)) @ R
+    # Transform ego -> camera: p_cam = p_ego @ R.T + t
+    # R is ego->cam rotation, t is translation (camera origin in ego frame)
+    pts_cam = pts_flat @ R.T + t.unsqueeze(0)
     z_cam = pts_cam[:, 2]
 
     # Project to pixel
