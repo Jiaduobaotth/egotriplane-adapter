@@ -97,6 +97,33 @@ python scripts/train_vision_3d.py \
     --out_dir outputs/stage1_phase2/
 ```
 
+## Inference & Visualization
+
+### Run inference on validation set
+
+```bash
+python scripts/infer_vision_3d.py --ckpt outputs/stage1_phase1/best.pt --nusc_root ./data --nusc_version v1.0-trainval --image_size 448 --backbone qwen3vl_4b --score_thresh 0.15 --out_dir outputs/inference/
+```
+
+### Visualize detection results
+
+```bash
+python scripts/visualize_detections.py --pred_json outputs/inference/predictions.json --gt_json outputs/inference/groundtruths.json --num_samples 30 --score_thresh 0.15 --out_dir outputs/vis/
+```
+
+Or run inference + visualization in one command:
+
+```bash
+python scripts/visualize_detections.py --ckpt outputs/stage1_phase1/best.pt --nusc_root ./data --nusc_version v1.0-trainval --num_samples 20 --score_thresh 0.15 --out_dir outputs/vis/
+```
+
+Output files:
+- `outputs/inference/predictions.json` — decoded 3D boxes, scores, classes per sample
+- `outputs/inference/groundtruths.json` — GT boxes and labels per sample
+- `outputs/vis/bev_XXX.png` — BEV overlay: pred (colored) + GT (grey)
+- `outputs/vis/compare_XXX.png` — side-by-side: left=pred, right=GT
+- `outputs/vis/summary_grid.png` — multi-sample thumbnail grid
+
 ## Project Structure
 
 ```
@@ -111,6 +138,8 @@ egotriplane_adapter/
 │   └── ...
 ├── scripts/
 │   ├── train_vision_3d.py     # Stage 1: vision encoder 3D pretraining
+│   ├── infer_vision_3d.py     # Inference on val set, output JSON detections
+│   ├── visualize_detections.py # BEV visualization of predicted 3D boxes
 │   └── ...
 ├── configs/                   # YAML configs
 └── requirements.txt
