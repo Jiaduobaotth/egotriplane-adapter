@@ -248,6 +248,8 @@ class CenterDetHead(nn.Module):
 
         return outputs
 
+    _decode_diag_printed = False
+
     @torch.no_grad()
     def decode_detections(
         self,
@@ -256,20 +258,7 @@ class CenterDetHead(nn.Module):
         max_dets: int = 100,
         nms_kernel: int = 3,
     ) -> list:
-        """Decode raw head outputs into list of 3D boxes.
-
-        Args:
-            outputs: dict from forward() with heatmap, offset, size, yaw, z, objectness
-            score_thresh: minimum score after objectness multiplier
-            max_dets: max detections per sample
-            nms_kernel: max-pool kernel size for local maxima suppression
-
-        Returns:
-            list of dicts per batch element, each with:
-              boxes: [N, 7] (cx, cy, cz, w, l, h, yaw)
-              scores: [N]
-              classes: [N] int
-        """
+        """Decode raw head outputs into list of 3D boxes."""
         heatmap = outputs["heatmap"]          # [B, C, H, W]
         offset = outputs["offset"]            # [B, 2, H, W]
         size = outputs["size"]                # [B, 3, H, W]
@@ -281,16 +270,32 @@ class CenterDetHead(nn.Module):
         device = heatmap.device
 
         # Sigmoid on heatmap
-        scores = heatmap.sigmoid()            # [B, C, H, W]
+        hm_prob = heatmap.sigmoid()           # [B, C, H, W]
         if obj is not None:
-            scores = scores * obj.sigmoid()   # multiply by objectness
+            obj_prob = obj.sigmoid()
+            scores = hm_prob * obj_prob
+        else:
+            scores = hm_prob
+
+        # Diagnostic: print score stats on first call
+        if not CenterDetHead._decode_diag_printed:
+            CenterDetHead._decode_diag_printed = True
+            print(f"[decode] heatmap raw: min={heatmap.min().item():.3f}, max={heatmap.max().item():.3f}")
+            print(f"[decode] heatmap prob: min={hm_prob.min().item():.4f}, max={hm_prob.max().item():.4f}, "
+                  f">0.1={ (hm_prob > 0.1).sum().item()}, >0.5={ (hm_prob > 0.5).sum().item()}")
+            if obj is not None:
+                print(f"[decode] obj prob: min={obj_prob.min().item():.4f}, max={obj_prob.max().item():.4f}, "
+                      f"mean={obj_prob.mean().item():.4f}")
+                print(f"[decode] score (hm*obj): min={scores.min().item():.4f}, max={scores.max().item():.4f}, "
+                      f">0.1={ (scores > 0.1).sum().item()}, >0.5={ (scores > 0.5).sum().item()}")
+            print(f"[decode] threshold={score_thresh}")
 
         # Max-pool NMS per class
         pool = torch.nn.functional.max_pool2d(
             scores.view(-1, 1, H, W),
             kernel_size=nms_kernel, stride=1, padding=nms_kernel // 2,
         ).view(B, C, H, W)
-        keep = (scores == pool) & (scores > score_thresh)
+        keep = (scores >= pool - 1e-6) & (scores > score_thresh)
 
         batch_results = []
         for b in range(B):
