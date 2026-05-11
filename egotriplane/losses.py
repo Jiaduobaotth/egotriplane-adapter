@@ -418,7 +418,8 @@ class Adapter3DPretrainLoss(nn.Module):
             dict with per-component losses and "total" key.
         """
         all_losses = {}
-        total = torch.tensor(0.0)
+        device = next(iter(det_preds.values())).device if det_preds else (bev_pred.device if bev_pred is not None else torch.device('cpu'))
+        total = torch.tensor(0.0, device=device)
 
         if det_preds is not None and det_targets is not None:
             det_losses = self.det_loss(det_preds, det_targets)

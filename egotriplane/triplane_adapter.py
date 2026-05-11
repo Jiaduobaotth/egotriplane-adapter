@@ -711,7 +711,7 @@ def _scatter_to_triplane(
     wy = y_min + (torch.arange(sy, device=device).float() + 0.5) * cell_y  # [sy]
     x_anchors = torch.tensor([0.0, 10.0, 20.0, 40.0, 60.0], device=device)  # [5]
     _scatter_plane_batched(
-        feats_2d, plane_yz, yz_count, wx, wz, x_anchors, 0,
+        feats_2d, plane_yz, yz_count, wy, wz, x_anchors, 0,
         R, t, fx, fy, cx, cy, H_img, W_img, device,
     )
 
