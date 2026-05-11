@@ -248,6 +248,97 @@ class CenterDetHead(nn.Module):
 
         return outputs
 
+    @torch.no_grad()
+    def decode_detections(
+        self,
+        outputs: dict,
+        score_thresh: float = 0.1,
+        max_dets: int = 100,
+        nms_kernel: int = 3,
+    ) -> list:
+        """Decode raw head outputs into list of 3D boxes.
+
+        Args:
+            outputs: dict from forward() with heatmap, offset, size, yaw, z, objectness
+            score_thresh: minimum score after objectness multiplier
+            max_dets: max detections per sample
+            nms_kernel: max-pool kernel size for local maxima suppression
+
+        Returns:
+            list of dicts per batch element, each with:
+              boxes: [N, 7] (cx, cy, cz, w, l, h, yaw)
+              scores: [N]
+              classes: [N] int
+        """
+        heatmap = outputs["heatmap"]          # [B, C, H, W]
+        offset = outputs["offset"]            # [B, 2, H, W]
+        size = outputs["size"]                # [B, 3, H, W]
+        yaw = outputs["yaw"]                  # [B, 2, H, W]
+        z = outputs["z"]                      # [B, 1, H, W]
+        obj = outputs.get("objectness")       # [B, 1, H, W] or None
+
+        B, C, H, W = heatmap.shape
+        device = heatmap.device
+
+        # Sigmoid on heatmap
+        scores = heatmap.sigmoid()            # [B, C, H, W]
+        if obj is not None:
+            scores = scores * obj.sigmoid()   # multiply by objectness
+
+        # Max-pool NMS per class
+        pool = torch.nn.functional.max_pool2d(
+            scores.view(-1, 1, H, W),
+            kernel_size=nms_kernel, stride=1, padding=nms_kernel // 2,
+        ).view(B, C, H, W)
+        keep = (scores == pool) & (scores > score_thresh)
+
+        batch_results = []
+        for b in range(B):
+            class_ids, ys, xs = torch.where(keep[b])
+            sc = scores[b, class_ids, ys, xs]
+
+            # Top-k
+            if sc.numel() > max_dets:
+                topk = sc.topk(max_dets).indices
+                class_ids = class_ids[topk]
+                ys = ys[topk]
+                xs = xs[topk]
+                sc = sc[topk]
+
+            N = sc.numel()
+            if N == 0:
+                batch_results.append({
+                    "boxes": torch.zeros(0, 7, device=device),
+                    "scores": torch.zeros(0, device=device),
+                    "classes": torch.zeros(0, dtype=torch.long, device=device),
+                })
+                continue
+
+            # Decode center: world coords from grid cells
+            cx = self.x_range[0] + (xs.float() + offset[b, 0, ys, xs]) * self.cell_x
+            cy = self.y_range[0] + (ys.float() + offset[b, 1, ys, xs]) * self.cell_y
+            cz = z[b, 0, ys, xs]
+
+            # Size
+            w_val = size[b, 0, ys, xs]
+            l_val = size[b, 1, ys, xs]
+            h_val = size[b, 2, ys, xs]
+
+            # Yaw
+            sin_val = yaw[b, 0, ys, xs]
+            cos_val = yaw[b, 1, ys, xs]
+            yaw_val = torch.atan2(sin_val, cos_val)
+
+            boxes = torch.stack([cx, cy, cz, w_val, l_val, h_val, yaw_val], dim=1)
+
+            batch_results.append({
+                "boxes": boxes,
+                "scores": sc,
+                "classes": class_ids,
+            })
+
+        return batch_results
+
 
 # ---------------------------------------------------------------------------
 # BEV Semantic Segmentation Head
