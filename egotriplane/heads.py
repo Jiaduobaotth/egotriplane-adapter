@@ -269,25 +269,21 @@ class CenterDetHead(nn.Module):
         B, C, H, W = heatmap.shape
         device = heatmap.device
 
-        # Sigmoid on heatmap
-        hm_prob = heatmap.sigmoid()           # [B, C, H, W]
-        if obj is not None:
-            obj_prob = obj.sigmoid()
-            scores = hm_prob * obj_prob
-        else:
-            scores = hm_prob
+        # Sigmoid on heatmap — this IS the detection score.
+        # Objectness is an auxiliary centerness signal, NOT multiplied
+        # into the score (following CenterPoint convention).
+        scores = heatmap.sigmoid()            # [B, C, H, W]
 
         # Diagnostic: print score stats on first call
         if not CenterDetHead._decode_diag_printed:
             CenterDetHead._decode_diag_printed = True
             print(f"[decode] heatmap raw: min={heatmap.min().item():.3f}, max={heatmap.max().item():.3f}")
-            print(f"[decode] heatmap prob: min={hm_prob.min().item():.4f}, max={hm_prob.max().item():.4f}, "
-                  f">0.1={ (hm_prob > 0.1).sum().item()}, >0.5={ (hm_prob > 0.5).sum().item()}")
+            print(f"[decode] heatmap prob: min={scores.min().item():.4f}, max={scores.max().item():.4f}, "
+                  f">0.1={ (scores > 0.1).sum().item()}, >0.5={ (scores > 0.5).sum().item()}")
             if obj is not None:
+                obj_prob = obj.sigmoid()
                 print(f"[decode] obj prob: min={obj_prob.min().item():.4f}, max={obj_prob.max().item():.4f}, "
                       f"mean={obj_prob.mean().item():.4f}")
-                print(f"[decode] score (hm*obj): min={scores.min().item():.4f}, max={scores.max().item():.4f}, "
-                      f">0.1={ (scores > 0.1).sum().item()}, >0.5={ (scores > 0.5).sum().item()}")
             print(f"[decode] threshold={score_thresh}")
 
         # Max-pool NMS per class
